@@ -3,35 +3,52 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    // Path to the file to upload. Required.
+    /// Path to the file to upload. Required.
     #[arg(short, long, value_name = "FILE", required = true)]
     file: Option<std::path::PathBuf>,
-    // URL of the GitLab instance, e.g. https://gitlab.com. Defaults to https://localhost.
+
+    /// URL of the GitLab instance, e.g. https://gitlab.com.
+    /// Defaults to https://localhost.
     #[arg(short, long, default_value = "https://localhost")]
     url: Option<String>,
-    // GitLab API token. If not provided, the GITLAB_ACCESS_TOKEN environment variable is used.
-    // If neither is provided, the program will prompt for a token.
+
+    /// GitLab API token. If not provided,
+    /// the GITLAB_ACCESS_TOKEN environment variable is used.
+    /// If neither is provided, you will be prompted for one.
     #[arg(short, long)]
     token: Option<String>,
-    // Name of the gitlab project to upload to. Required if project_id is not provided.
+
+    /// Name of the gitlab project to upload to.
+    /// Required if project_id is not provided.
     #[arg(short, long)]
     project_name: Option<String>,
-    // ID of the gitlab project to upload to. Required if project_name is not provided.
+
+    /// ID of the gitlab project to upload to.
+    /// Required if project_name is not provided.
     #[arg(long)]
     project_id: Option<u32>,
-    // Comma separated list of labels to add to the issue. None are added by default.
+
+    /// Comma separated list of labels to add to the issue.
+    /// None are added by default.
     #[arg(short, long)]
     labels: Option<String>,
-    // Assignee username to add to the issue. None are added by default.
+
+    /// Assignee username to add to the issue.
+    /// None are added by default.
     #[arg(short, long)]
     assignee: Option<String>,
-    // Should we disable SSL verification for requests to gitlab? Defaults to false.
+
+    /// Should we disable SSL verification for requests to gitlab?
+    /// Defaults to false.
     #[arg(short, long, default_value = "false")]
     no_ssl_verify: Option<bool>,
-    // Check if the file can be used to extract gitlab tasks. No upload is performed. Defaults to false.
+
+    /// Check if the file can be used to extract gitlab tasks.
+    /// No upload is performed. Defaults to false.
     #[arg(short, long, default_value = "false")]
     check: Option<bool>,
-    // Verbose output. Defaults to false.
+
+    /// Verbose output. Defaults to false.
     #[arg(short, long, default_value = "false")]
     verbose: Option<bool>,
 }
@@ -93,8 +110,10 @@ fn verify_args(args: &mut Args) {
 fn main() {
     let mut args = Args::parse();
     verify_args(&mut args);
+
     if let Some(file) = args.file {
         println!("File: {:?}", file);
     }
     println!("Hello, world!");
+    println!("asdf");
 }
