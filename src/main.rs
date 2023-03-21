@@ -2,8 +2,8 @@ use clap::Parser;
 use csv;
 use json;
 use serde_json;
-use std::{collections::HashMap, rc::Rc};
-use uuid::{uuid, Uuid};
+use std::collections::HashMap;
+use uuid::Uuid;
 
 const SUPPORTED_FILE_TYPES: [&'static str; 2] = ["csv", "json"];
 const DEFAULT_GITLAB_URL: &'static str = "https://localhost";
@@ -93,6 +93,12 @@ fn verify_args(args: &mut Args) {
         } else {
             eprintln!("Either url by argument or GITLAB_URL environmentString environment variable must be provided");
             std::process::exit(1);
+        }
+    }
+    // Check if token is provided or GITLAB_ACCESS_TOKEN is set
+    if args.token.is_none() {
+        if let Ok(token) = std::env::var("GITLAB_ACCESS_TOKEN") {
+            args.token = Some(token);
         }
     }
     // Verify that either project_name or project_id is provided
@@ -246,7 +252,32 @@ impl GitLabApiRequest {
         Ok(labels)
     }
     fn post_issue(&self, issue: &GitLabIssue) -> Result<(), &'static str> {
-        todo!("Post an issue to the GitLab API")
+        let url = format!("{}/projects/{}/issues", self.url, issue.project_id);
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("PRIVATE-TOKEN", self.token.parse().unwrap());
+        let client = reqwest::blocking::Client::builder()
+            .danger_accept_invalid_certs(self.no_ssl_verify)
+            .build()
+            .unwrap();
+        let mut body = HashMap::new();
+        body.insert("id", issue.id.to_string());
+        body.insert("title", issue.title.clone());
+        body.insert("description", issue.description.clone());
+        if let Some(labels) = &issue.labels {
+            body.insert("labels", labels.clone());
+        }
+        if let Some(assignee) = &issue.assignee {
+            body.insert("assignee_ids", assignee.clone());
+        }
+        let response = match client.post(&url).headers(headers).json(&body).send() {
+            Ok(response) => response,
+            Err(_) => return Err("Failed to send request"),
+        };
+        // Check if the response was successful
+        if !response.status().is_success() {
+            return Err("Request was not successful");
+        }
+        Ok(())
     }
 }
 
@@ -283,7 +314,12 @@ struct Issue {
 }
 
 fn find_matching_header(headers: &csv::StringRecord, our_header: &str) -> Option<usize> {
-    todo!("Find the index of the header in the csv file")
+    for (i, header) in headers.iter().enumerate() {
+        if header == our_header {
+            return Some(i);
+        }
+    }
+    None
 }
 
 fn find_matching_attribute(attributes: &json::JsonValue, out_attribute: &str) -> Option<usize> {
@@ -641,7 +677,11 @@ fn main() {
             gitlab_issue.set_labels(labels);
         }
         match gitlab_request.post_issue(&gitlab_issue) {
-            Ok(_) => println!("TODO"),
+            Ok(_) => {
+                if args.verbose.unwrap() {
+                    println!("Created issue: {}", gitlab_issue.title);
+                }
+            },
             Err(e) => eprintln!("Could not create issue: {}", e),
         }
     }
