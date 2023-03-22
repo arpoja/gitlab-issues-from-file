@@ -1,6 +1,6 @@
 title,description
 task1, some description
 task2, this is another task1
-another title,
+another title, 
 "task3, this is a task with a comma in the description", this is the description of task3
-"task4", "task 4, description, with a comma"
+"task4","task 4, description, with a comma"
