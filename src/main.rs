@@ -1,11 +1,8 @@
 use clap::Parser;
-use csv;
-use json;
-use serde_json;
-use std::collections::HashMap;
-use uuid::Uuid;
+// Local files
+mod gitlabapi;
+mod issuefile;
 
-const SUPPORTED_FILE_TYPES: [&'static str; 2] = ["csv", "json"];
 const DEFAULT_GITLAB_URL: &'static str = "https://localhost";
 
 #[derive(Parser, Debug)]
@@ -20,9 +17,28 @@ struct Args {
     /// Ignored if file is not a csv file.
     #[arg(short, long, default_value = ",")]
     separator: Option<char>,
+    /// Does the csv file have a header row?
+    #[arg(long, default_value = "false")]
+    no_header: bool,
+    /// Column name to use as the title of the issue when parsing a csv or json file.
+    #[arg(long, default_value = "title")]
+    title_column: Option<String>,
+    /// Column index *Starting from 0* to use as the title of the issue when parsing a csv file.
+    /// Ignored if file is not a csv file.
+    /// If both title_column and title_index are provided, title_index is used.
+    #[arg(long)]
+    title_index: Option<usize>,
+
+    /// Column name to use as the description of the issue when parsing a csv or json file.
+    #[arg(long, default_value = "description")]
+    description_column: Option<String>,
+    /// Column index *Starting from 0* to use as the description of the issue when parsing a csv file.
+    /// Ignored if file is not a csv file.
+    /// If both description_column and description_index are provided, description_index is used.
+    #[arg(long)]
+    description_index: Option<usize>,
 
     /// URL of the GitLab instance, e.g. https://gitlab.com.
-    /// Defaults to https://localhost.
     #[arg(short, long, default_value = DEFAULT_GITLAB_URL)]
     url: Option<String>,
 
@@ -60,11 +76,11 @@ struct Args {
     /// Check if the file can be used to extract gitlab tasks.
     /// No upload is performed. Defaults to false.
     #[arg(short, long, default_value = "false")]
-    check: Option<bool>,
+    check: bool,
 
     /// Verbose output. Defaults to false.
     #[arg(short, long, default_value = "false")]
-    verbose: Option<bool>,
+    verbose: bool,
 }
 
 fn verify_args(args: &mut Args) {
@@ -81,9 +97,15 @@ fn verify_args(args: &mut Args) {
     } else {
         // Check if the file type is supported
         let file_type = args.file.as_ref().unwrap().extension().unwrap();
-        if !SUPPORTED_FILE_TYPES.contains(&file_type.to_ascii_lowercase().to_str().unwrap()) {
+        if !issuefile::SUPPORTED_FILE_TYPES
+            .contains(&file_type.to_ascii_lowercase().to_str().unwrap())
+        {
             eprintln!("File type is not supported");
             std::process::exit(1);
+        }
+        // Set separator to None if file is not a csv file
+        if file_type != "csv" {
+            args.separator = None;
         }
     }
     // Verify that either url is provided or GITLAB_URL is set
@@ -91,7 +113,7 @@ fn verify_args(args: &mut Args) {
         if let Ok(url) = std::env::var("GITLAB_URL") {
             args.url = Some(url);
         } else {
-            eprintln!("Either url by argument or GITLAB_URL environmentString environment variable must be provided");
+            eprintln!("Missing gitlab url. Either url by argument -u <URL> or GITLAB_URL environment variable must be provided");
             std::process::exit(1);
         }
     }
@@ -123,214 +145,23 @@ fn verify_args(args: &mut Args) {
             }
         }
     }
-}
-
-struct GitLabProjectImportantInfo {
-    id: u64,
-    name: String,
-    path_with_namespace: String,
-}
-struct GitLabMemberImportantInfo {
-    id: u64,
-    username: String,
-    name: String,
-}
-struct GitLabLabelImportantInfo {
-    id: u64,
-    name: String,
-}
-struct GitLabApiRequest {
-    url: String,
-    token: String,
-    no_ssl_verify: bool,
-}
-impl GitLabApiRequest {
-    fn get_projects(&self) -> Result<Vec<GitLabProjectImportantInfo>, &'static str> {
-        // We know that our struct is valid, so we dont need to check for errors
-        let url = format!("{}/projects", self.url);
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("PRIVATE-TOKEN", self.token.parse().unwrap());
-        let client = reqwest::blocking::Client::builder()
-            .danger_accept_invalid_certs(self.no_ssl_verify)
-            .build()
-            .unwrap();
-        let response = match client.get(&url).headers(headers).send() {
-            Ok(response) => response,
-            Err(_) => return Err("Failed to send request"),
-        };
-        // Check if the response was successful
-        if !response.status().is_success() {
-            return Err("Request was not successful");
-        }
-        // Parse the response with serde before turning the important info into a vector of structs
-        let projects_array: Vec<serde_json::Value> = match response.json() {
-            Ok(projects_array) => projects_array,
-            Err(_) => return Err("Failed to parse response"),
-        };
-        let mut projects: Vec<GitLabProjectImportantInfo> = Vec::new();
-        for project in projects_array {
-            let p = GitLabProjectImportantInfo {
-                id: project["id"].as_u64().unwrap(),
-                name: project["name"].as_str().unwrap().to_string(),
-                path_with_namespace: project["path_with_namespace"].as_str().unwrap().to_string(),
-            };
-            projects.push(p);
-        }
-
-        Ok(projects)
+    // Clear title and description column if index is provided
+    if args.title_index.is_some() {
+        args.title_column = None;
     }
-
-    fn get_members_of_project(
-        &self,
-        project_id: u64,
-    ) -> Result<Vec<GitLabMemberImportantInfo>, &'static str> {
-        let url = format!("{}/projects/{}/members", self.url, project_id);
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("PRIVATE-TOKEN", self.token.parse().unwrap());
-        let client = reqwest::blocking::Client::builder()
-            .danger_accept_invalid_certs(self.no_ssl_verify)
-            .build()
-            .unwrap();
-        let response = match client.get(&url).headers(headers).send() {
-            Ok(response) => response,
-            Err(_) => return Err("Failed to send request"),
-        };
-        // Check if the response was successful
-        if !response.status().is_success() {
-            return Err("Request was not successful");
-        }
-        // Parse the response with serde before turning the important info into a vector of structs
-        let members_array: Vec<serde_json::Value> = match response.json() {
-            Ok(members) => members,
-            Err(_) => return Err("Failed to parse response"),
-        };
-        let mut members: Vec<GitLabMemberImportantInfo> = Vec::new();
-        for member in members_array {
-            let m = GitLabMemberImportantInfo {
-                id: member["id"].as_u64().unwrap(),
-                username: member["username"].as_str().unwrap().to_string(),
-                name: member["name"].as_str().unwrap().to_string(),
-            };
-            members.push(m);
-        }
-
-        Ok(members)
+    if args.description_index.is_some() {
+        args.description_column = None;
     }
-    fn get_labels_of_project(
-        &self,
-        project_id: u64,
-    ) -> Result<Vec<GitLabLabelImportantInfo>, &'static str> {
-        let url = format!("{}/projects/{}/labels", self.url, project_id);
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("PRIVATE-TOKEN", self.token.parse().unwrap());
-        let client = reqwest::blocking::Client::builder()
-            .danger_accept_invalid_certs(self.no_ssl_verify)
-            .build()
-            .unwrap();
-        let response = match client.get(&url).headers(headers).send() {
-            Ok(response) => response,
-            Err(_) => return Err("Failed to send request"),
-        };
-        // Check if the response was successful
-        if !response.status().is_success() {
-            return Err("Request was not successful");
-        }
-
-        let labels_array: Vec<serde_json::Value> = match response.json() {
-            Ok(labels) => labels,
-            Err(_) => return Err("Failed to parse response"),
-        };
-
-        let mut labels = Vec::new();
-        for label in labels_array {
-            let l = GitLabLabelImportantInfo {
-                id: label["id"].as_u64().unwrap(),
-                name: label["name"].as_str().unwrap().to_string(),
-            };
-            labels.push(l);
-        }
-        Ok(labels)
-    }
-    fn post_issue(&self, issue: &GitLabIssue) -> Result<(), &'static str> {
-        let url = format!("{}/projects/{}/issues", self.url, issue.project_id);
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("PRIVATE-TOKEN", self.token.parse().unwrap());
-        let client = reqwest::blocking::Client::builder()
-            .danger_accept_invalid_certs(self.no_ssl_verify)
-            .build()
-            .unwrap();
-        let mut body = HashMap::new();
-        body.insert("id", issue.id.to_string());
-        body.insert("title", issue.title.clone());
-        body.insert("description", issue.description.clone());
-        if let Some(labels) = &issue.labels {
-            body.insert("labels", labels.clone());
-        }
-        if let Some(assignee) = &issue.assignee {
-            body.insert("assignee_ids", assignee.clone());
-        }
-        let response = match client.post(&url).headers(headers).json(&body).send() {
-            Ok(response) => response,
-            Err(_) => return Err("Failed to send request"),
-        };
-        // Check if the response was successful
-        if !response.status().is_success() {
-            return Err("Request was not successful");
-        }
-        Ok(())
+    // Verify that title_index is provided if the csv file has no header
+    if args.no_header && args.title_index.is_none() {
+        eprintln!("title_index must be provided if the csv file has no header");
+        std::process::exit(1);
     }
 }
 
-struct GitLabIssue {
-    id: Uuid,
-    project_id: u64,
-    title: String,
-    description: String,
-    labels: Option<String>,
-    assignee: Option<String>,
-}
-impl GitLabIssue {
-    fn new(project_id: u64, issue: Issue) -> Self {
-        Self {
-            id: Uuid::new_v4(),
-            project_id,
-            title: issue.title,
-            description: issue.description,
-            labels: None,
-            assignee: None,
-        }
-    }
-    fn set_labels(&mut self, labels: String) {
-        self.labels = Some(labels);
-    }
-    fn set_assignee(&mut self, assignee: String) {
-        self.assignee = Some(assignee);
-    }
-}
-
-struct Issue {
-    title: String,
-    description: String,
-}
-
-fn find_matching_header(headers: &csv::StringRecord, our_header: &str) -> Option<usize> {
-    for (i, header) in headers.iter().enumerate() {
-        if header == our_header {
-            return Some(i);
-        }
-    }
-    None
-}
-
-fn find_matching_attribute(attributes: &json::JsonValue, out_attribute: &str) -> Option<usize> {
-    todo!("Find the index of the attribute in the json file")
-}
-
-fn ask_user_for_token(args: &Args) -> Result<String, &'static str> {
+fn ask_user_for_token() -> Result<String, &'static str> {
     let mut buffer = String::new();
-    if args.verbose.unwrap() {
-        println!("No token provided. Please enter your GitLab API token:");
-    }
+    println!("No token provided. Please enter your GitLab API token:");
     let token = match std::io::stdin().read_line(&mut buffer) {
         Ok(_) => buffer.trim().to_string(),
         Err(_) => return Err("Could not read token"),
@@ -338,351 +169,264 @@ fn ask_user_for_token(args: &Args) -> Result<String, &'static str> {
     Ok(token)
 }
 
-fn ask_user_for_header(
-    headers: &csv::StringRecord,
-    wanted_header_name: &str,
-) -> Result<usize, &'static str> {
-    let mut buffer = String::new();
-    println!("No '{}' header found in the csv file:", wanted_header_name);
-    for (i, header) in headers.iter().enumerate() {
-        println!("{}: {}", i, header);
-    }
-    println!(
-        "Please enter the number of the header you wish to use for issue {}:",
-        wanted_header_name
+fn args_to_parser(args: &Args, verbose: bool) -> issuefile::FileParser {
+    let parser = issuefile::FileParser::new(
+        args.file.as_ref().unwrap().to_path_buf(),
+        args.separator.clone(),
+        args.no_header.clone(),
+        args.title_column.clone(),
+        args.title_index,
+        args.description_column.clone(),
+        args.description_index,
+        verbose,
     );
-
-    let index = match std::io::stdin().read_line(&mut buffer) {
-        Ok(_) => buffer.trim().parse::<usize>().unwrap(),
-        Err(_) => return Err("Could not parse input"),
-    };
-    if index >= headers.len() {
-        return Err("Index out of bounds");
-    }
-    Ok(index)
+    parser
 }
 
-fn file_to_issues(args: &Args) -> Option<Vec<Issue>> {
-    let file_type = args.file.as_ref().unwrap().extension().unwrap();
-    let file = args.file.as_ref().unwrap();
-    let separator = args.separator.as_ref().unwrap();
-    match file_type.to_ascii_lowercase().to_str().unwrap() {
-        "csv" => csv_to_issues(file, separator),
-        "json" => json_to_issues(file),
-        _ => None,
-    }
-}
-
-fn csv_to_issues(file: &std::path::PathBuf, separator: &char) -> Option<Vec<Issue>> {
-    let mut issues: Vec<Issue> = Vec::new();
-    let mut reader = csv::Reader::from_path(file).unwrap();
-    let headers = match reader.headers() {
-        Ok(headers) => headers,
-        Err(e) => {
-            eprintln!("Could not read headers from csv file: {}", e);
-            std::process::exit(1);
+fn args_to_gitlabapi_request_client(
+    args: &Args,
+) -> Result<gitlabapi::GitLabApiRequest, &'static str> {
+    let token: String = match args.token.as_ref() {
+        Some(t) => t.clone(),
+        None => {
+            let token = loop {
+                match ask_user_for_token() {
+                    Ok(t) => break t,
+                    Err(e) => eprintln!("{}", e),
+                }
+            };
+            token
         }
     };
-    // Check if title header exists. If not, ask the user which header should be used for title
-    let title_index = match find_matching_header(&headers, "title") {
-        Some(index) => index,
-        None => loop {
-            match ask_user_for_header(&headers, "title") {
-                Ok(index) => break index,
-                Err(e) => {
-                    eprintln!("Could not parse input: {}", e);
-                    continue;
-                }
+    let client = gitlabapi::GitLabApiRequest::new(
+        args.url.as_ref().unwrap().as_str(),
+        token,
+        args.no_ssl_verify.unwrap(),
+    );
+    Ok(client)
+}
+
+fn get_valid_project_id(
+    args: &Args,
+    projects: Vec<gitlabapi::GitLabProject>,
+) -> Result<u64, String> {
+    // Check if the user provided project name or id
+    if args.project_name.is_some() {
+        let wanted_project_name = args.project_name.as_ref().unwrap();
+        // It is possible that the user provided a project name,
+        // for which there are multiple projects with the same name.
+        // Check for name and namespace
+        let mut matching_projects: Vec<u64> = Vec::new();
+        projects.iter().for_each(|project| {
+            if &project.name == wanted_project_name {
+                matching_projects.push(project.id);
             }
-        },
-    };
-    // Check if description header exists. If not, ask the user which header should be used for description
-    let description_index = match find_matching_header(&headers, "description") {
-        Some(index) => index,
-        None => loop {
-            match ask_user_for_header(&headers, "description") {
-                Ok(index) => break index,
-                Err(e) => {
-                    eprintln!("Could not parse input: {}", e);
-                    continue;
-                }
+            if &project.path_with_namespace == wanted_project_name {
+                matching_projects.push(project.id);
             }
-        },
-    };
-    for result in reader.records() {
-        let record = match result {
-            Ok(record) => record,
-            Err(e) => {
-                eprintln!("Could not read record from csv file: {}", e);
-                continue;
-            }
-        };
-        let title = match record.get(title_index) {
-            Some(title) => title,
-            None => {
-                eprintln!("Could not read title from csv file");
-                std::process::exit(1);
-            }
-        };
-        let description = match record.get(description_index) {
-            Some(description) => description,
-            None => {
-                eprintln!("Could not read description from csv file");
-                std::process::exit(1);
-            }
-        };
-        issues.push(Issue {
-            title: title.to_string(),
-            description: description.to_string(),
         });
-    }
-    Some(issues)
-}
 
-fn json_to_issues(file: &std::path::PathBuf) -> Option<Vec<Issue>> {
-    todo!("Implement json_to_issues");
-}
-
-fn project_id_exists(project_id: &u64, projects: &Vec<GitLabProjectImportantInfo>) -> bool {
-    for project in projects {
-        if project.id == *project_id {
-            return true;
-        }
-    }
-    false
-}
-
-fn get_project_id_from_name(
-    project_name: &str,
-    projects: &Vec<GitLabProjectImportantInfo>,
-) -> Option<u64> {
-    let mut res: Vec<u64> = Vec::new();
-    for project in projects {
-        if project.name == project_name {
-            res.push(project.id);
-        }
-    }
-    if res.len() == 1 {
-        Some(res[0])
-    } else if res.len() > 1 {
-        eprintln!(
-            "Multiple projects with the same name {} found",
-            project_name
-        );
-        None
-    } else if res.len() == 0 {
-        eprintln!("No project with the name '{}' found", project_name);
-        None
+        match matching_projects.len() {
+            0 => {
+                return Err(format!(
+                    "No projects with name {} found",
+                    wanted_project_name.clone()
+                ))
+            }
+            1 => {
+                return Ok(matching_projects[0]);
+            }
+            _ => {
+                return Err(format!(
+                    "Multiple projects with name {} found",
+                    wanted_project_name.clone()
+                ));
+            }
+        };
     } else {
-        eprintln!("Something went wrong");
-        None
-    }
-}
-
-fn project_member_exists(username: &str, project_members: &Vec<GitLabMemberImportantInfo>) -> bool {
-    for project_member in project_members {
-        if project_member.username == username {
-            return true;
+        // args.project_id.is_some() is always true if we reach this point
+        let wanted_project_id = args.project_id.unwrap();
+        for project in projects {
+            if project.id == wanted_project_id {
+                return Ok(wanted_project_id);
+            }
         }
+        return Err(format!("No project with id {} found", wanted_project_id));
     }
-    false
-}
-
-fn project_label_exists(label: &str, project_labels: &Vec<GitLabLabelImportantInfo>) -> bool {
-    for project_label in project_labels {
-        if project_label.name == label {
-            return true;
-        }
-    }
-    false
 }
 
 fn main() {
     let mut args = Args::parse();
     verify_args(&mut args);
-
-    // Verify that the file can be used to extract gitlab tasks
-    // Create a list of issues from the file
-    let mut issues: Vec<Issue> = Vec::new();
-    if let Some(issues_from_file) = file_to_issues(&args) {
-        issues.extend(issues_from_file); // TODO: Check if this is correct
-    } else {
-        eprintln!("File could not be used to extract gitlab tasks");
-        std::process::exit(1);
-    }
-    if args.verbose.unwrap() {
-        println!(
-            "Found {} issues in the file {}",
-            issues.len(),
-            args.file.as_ref().unwrap().to_str().unwrap()
-        );
-        for issue in &issues {
-            println!("\tTitle: {}", issue.title);
-            println!("\tDescription: {}", issue.description);
-        }
-    }
-    // Exit if check is true, i.e. we don't want to upload
-    if args.check.unwrap() {
-        println!("Exiting before upload because you requested a check only.");
-        std::process::exit(0);
-    }
-    // Check if the user provided a token. If not, ask the user for one
-    let token = match args.token.as_ref() {
-        Some(token) => token.to_string(),
-        None => loop {
-            match ask_user_for_token(&args) {
-                Ok(token) => break token,
-                Err(e) => {
-                    eprintln!("Could not read token: {}", e);
-                    continue;
-                }
-            }
-        },
-    };
-    // Build the gitlab request struct
-    let api_url = format!("{}/api/v4", args.url.as_ref().unwrap()); // we know that url is Some() because we verified the args
-    let gitlab_request = GitLabApiRequest {
-        url: api_url,
-        token,
-        no_ssl_verify: args.no_ssl_verify.unwrap(), // we know that no_ssl_verify is Some() because it has a default value
-    };
-    // Verify that the gitlab url and token are valid by getting the available projects from gitlab api
-    let projects = match gitlab_request.get_projects() {
-        Ok(projects) => projects,
+    // Translate args to file parser.
+    // We dont need to check if the options are valid, because we already did that in verify_args
+    // We make the parser mutable, because we might need to change the title and description column
+    // if the user provided them
+    let mut parser = args_to_parser(&args, args.verbose);
+    // Attempt to read the file and extract the issues
+    let fileissues = match parser.get_issues() {
+        Ok(issues) => issues,
         Err(e) => {
-            eprintln!("Could not get projects from gitlab: {}", e);
+            eprintln!("{}", e);
             std::process::exit(1);
         }
     };
-    if args.verbose.unwrap() {
-        println!("Found {} projects in gitlab:", projects.len());
-        for project in &projects {
-            println!(
-                "\tid: {}, Name: {}, Name with path: {}",
-                project.id, project.name, project.path_with_namespace
-            );
-        }
-    }
-    // Check if the user provided project name or id exists in response from gitlab api
-    if args.project_id.is_none() {
-        // We need to get the project id from the project name
-        match get_project_id_from_name(args.project_name.as_ref().unwrap(), &projects) {
-            Some(project_id) => args.project_id = Some(project_id),
-            None => {
-                eprintln!(
-                    "Could not find project with name {}",
-                    args.project_name.as_ref().unwrap()
-                );
-                std::process::exit(1);
-            }
-        };
-    } else if !project_id_exists(&args.project_id.unwrap(), &projects) {
-        eprintln!(
-            "Could not find project with id {}",
-            args.project_id.unwrap()
+    if args.verbose {
+        println!(
+            "Found {} issues in the file {}:",
+            fileissues.len(),
+            args.file.as_ref().unwrap().to_str().unwrap()
         );
-        std::process::exit(1);
+        fileissues
+            .iter()
+            .for_each(|issue| println!("\t{}", issue.to_string()))
     }
-    // We have a valid project id
-    let project_id = args.project_id.unwrap();
-    // Check if the user provided an assignee and if it exists in the project
+    // Exit if user only wanted to check the file
+    if args.check {
+        println!("File is valid, exiting because of --check flag...");
+        std::process::exit(0);
+    }
+
+    // Create the gitlab api client
+    let client = match args_to_gitlabapi_request_client(&args) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    };
+    // Check if our token is valid by trying to get the available projects
+    let projects = match client.get_projects() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    };
+    if args.verbose {
+        println!("Found {} projects:", projects.len());
+        projects
+            .iter()
+            .for_each(|project| println!("\t{}", project.to_string()))
+    }
+    // Verify that the project exists
+    let project_id = match get_valid_project_id(&args, projects) {
+        Ok(id) => id,
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    };
+    if args.verbose {
+        println!("Verified project id {}", project_id);
+    }
+    // If specified, verify that the assignee exists and is a member of the project
+    let assignee_id: Option<u64> = None;
     if args.assignee.is_some() {
-        let assignee = args.assignee.as_ref().unwrap().to_string(); // we know that assignee is Some() because we verified the args
-        let project_members = match gitlab_request.get_members_of_project(project_id) {
-            Ok(members) => members,
+        let project_members = match client.get_members_of_project(project_id) {
+            Ok(m) => m,
             Err(e) => {
-                eprintln!("Could not get members from gitlab: {}", e);
+                eprintln!("{}", e);
                 std::process::exit(1);
             }
         };
-        if args.verbose.unwrap() {
+        if args.verbose {
             println!(
-                "Found {} members in project with id {}",
+                "Found {} members of project {}",
                 project_members.len(),
                 project_id
             );
-            for member in &project_members {
-                println!("\tid: {}, username: {}", member.id, member.username);
+            project_members
+                .iter()
+                .for_each(|member| println!("\t{}", member.to_string()))
+        }
+
+        let our_assignee = args.assignee.as_ref().unwrap();
+        if args.verbose {
+            println!("Verifying that assignee {} exists...", our_assignee);
+        }
+        let mut assignee_exists = false;
+        for member in project_members {
+            if member.username == *our_assignee {
+                assignee_exists = true;
+                break;
             }
         }
-        if !project_member_exists(&assignee, &project_members) {
-            eprintln!(
-                "Could not find assignee {} in project with id {}",
-                assignee, project_id
-            );
-            std::process::exit(1);
-        }
-        if args.verbose.unwrap() {
-            println!(
-                "Assignee {} exists in project with id {}",
-                assignee, project_id
-            );
+        match assignee_exists {
+            true => (),
+            false => {
+                eprintln!(
+                    "The assignee {} does not exist or is not a member of the project with id {}",
+                    our_assignee, project_id
+                );
+                std::process::exit(1);
+            }
         }
     }
 
-    // Check if the user provided labels and if they exist in the project
+    // If specified, verify that the labels exist
     if args.labels.is_some() {
-        // Verify that the labels are a comma separated list
-        let labels = args.labels.as_ref().unwrap().to_string(); // we know that labels is Some() because we verified the args
-        let labels: Vec<&str> = labels.split(',').map(|s| s.trim()).collect();
-
-        // Get the labels from the project
-        let project_labels = match gitlab_request.get_labels_of_project(project_id) {
-            Ok(labels) => labels,
+        let project_labels = match client.get_labels_of_project(project_id) {
+            Ok(l) => l,
             Err(e) => {
-                eprintln!("Could not get labels from gitlab: {}", e);
+                eprintln!("{}", e);
                 std::process::exit(1);
             }
         };
-        if args.verbose.unwrap() {
+        if args.verbose {
             println!(
-                "Found {} labels in project with id {}",
+                "Found {} labels of project {}",
                 project_labels.len(),
                 project_id
             );
-            for label in &project_labels {
-                println!("\tid: {}, name: {}", label.id, label.name);
-            }
+            project_labels
+                .iter()
+                .for_each(|label| println!("\t{}", label.to_string()))
         }
-        // Check that each label exists in the project
-        let mut count = 0;
-        for label in &labels {
-            for pl in &project_labels {
-                if pl.name == *label {
-                    count += 1;
+        let our_labels = args
+            .labels
+            .as_ref()
+            .unwrap()
+            .split(',')
+            .collect::<Vec<&str>>();
+        if args.verbose {
+            println!("Verifying that labels {:?} exist...", our_labels);
+        }
+        for our_label in our_labels {
+            let mut label_exists = false;
+            for gitlab_label in &project_labels {
+                if gitlab_label.name == *our_label {
+                    label_exists = true;
                     break;
                 }
             }
-        }
-        if count != labels.len() {
-            eprintln!(
-                "Could not find all labels in project with id {}",
-                project_id
-            );
-            std::process::exit(1);
-        }
-        if args.verbose.unwrap() {
-            println!("All labels exist in project with id {}", project_id);
+            match label_exists {
+                true => (),
+                false => {
+                    eprintln!(
+                        "The label {} does not exist in the project with id {}",
+                        our_label, project_id
+                    );
+                    std::process::exit(1);
+                }
+            }
         }
     }
-    // We are ready to upload the issues to gitlab
-    for issue in issues {
-        let mut gitlab_issue = GitLabIssue::new(args.project_id.unwrap(), issue); // we know that project_id is Some() because we verified the args
-        if args.assignee.is_some() {
-            let assignee = args.assignee.as_ref().unwrap().to_string(); // we know that assignee is Some() because we verified the args
-            gitlab_issue.set_assignee(assignee);
+    // All checks passed, now we can create the issues
+    for fileissue in fileissues {
+        let issue =
+            gitlabapi::GitLabProjectIssue::new(project_id, &fileissue, &args.labels, assignee_id);
+        if args.verbose {
+            println!(
+                "Creating issue '{}' for project {}",
+                issue.title, project_id
+            );
         }
-        if args.labels.is_some() {
-            let labels = args.labels.as_ref().unwrap().to_string(); // we know that labels is Some() because we verified the args
-            gitlab_issue.set_labels(labels);
-        }
-        match gitlab_request.post_issue(&gitlab_issue) {
-            Ok(_) => {
-                if args.verbose.unwrap() {
-                    println!("Created issue: {}", gitlab_issue.title);
-                }
-            },
-            Err(e) => eprintln!("Could not create issue: {}", e),
+        match client.post_issue(&issue) {
+            Ok(_) => println!("Created issue '{}'", issue.title),
+            Err(e) => {
+                eprintln!("{}", e);
+            }
         }
     }
 }
