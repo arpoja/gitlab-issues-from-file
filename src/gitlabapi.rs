@@ -1,3 +1,4 @@
+use log::{debug, error, info, warn};
 use reqwest;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -5,7 +6,7 @@ use uuid::Uuid;
 use crate::issuefile::IssueFromFile;
 
 pub struct GitLabProjectMember {
-    id: u64,
+    pub id: u64,
     pub username: String,
     name: String,
 }
@@ -66,12 +67,15 @@ impl GitLabApiRequest {
             path.to_string()
         };
         let url = format!("{}/{}", self.base_url, path);
+        debug!("Sending GET request to {}", url);
         let response = match self.client.get(&url).headers(self.headers.clone()).send() {
             Ok(response) => response,
             Err(_) => return Err("Failed to send request"),
         };
+        debug!("Response rc: {}", &response.status());
         // Check if the response was successful
         if !response.status().is_success() {
+            debug!("Unsuccesful response body: {}", &response.text().unwrap());
             return Err("Request was not successful");
         }
         Ok(response)
@@ -89,6 +93,7 @@ impl GitLabApiRequest {
             path.to_string()
         };
         let url = format!("{}/{}", self.base_url, path);
+        debug!("Sending POST request to {}", url);
         let response = match self
             .client
             .post(&url)
@@ -99,13 +104,16 @@ impl GitLabApiRequest {
             Ok(response) => response,
             Err(_) => return Err("Failed to send request"),
         };
+        debug!("Response rc: {}", &response.status());
         // Check if the response was successful
         if !response.status().is_success() {
+            debug!("Unsuccesful response body: {}", &response.text().unwrap());
             return Err("Request was not successful");
         }
         Ok(response)
     }
     pub fn get_projects(&self) -> Result<Vec<GitLabProject>, &'static str> {
+        debug!("Getting projects from GitLab (GET /projects)");
         let path = "projects";
         let response = match self.get(path) {
             Ok(response) => response,
@@ -119,7 +127,7 @@ impl GitLabApiRequest {
         let projects_array: Vec<serde_json::Value> = match response.json() {
             Ok(projects_array) => projects_array,
             Err(e) => {
-                println!("Error: {}", e);
+                error!("Error parsing projects: {}", e);
                 return Err("Failed to parse response");
             }
         };
@@ -153,7 +161,10 @@ impl GitLabApiRequest {
         // Parse the response with serde before turning the important info into a vector of structs
         let members_array: Vec<serde_json::Value> = match response.json() {
             Ok(members) => members,
-            Err(_) => return Err("Failed to parse response"),
+            Err(e) => {
+                error!("Error parsing members {}", e);
+                return Err("Failed to parse response");
+            }
         };
         let mut members: Vec<GitLabProjectMember> = Vec::new();
         for member in members_array {
@@ -183,7 +194,10 @@ impl GitLabApiRequest {
         // Parse the response with serde before turning the important info into a vector of structs
         let labels_array: Vec<serde_json::Value> = match response.json() {
             Ok(labels) => labels,
-            Err(_) => return Err("Failed to parse response"),
+            Err(e) => {
+                error!("Error parsing labels {}", e);
+                return Err("Failed to parse response");
+            }
         };
         let mut labels: Vec<GitLabProjectLabel> = Vec::new();
         for label in labels_array {
@@ -231,6 +245,7 @@ impl GitLabApiRequest {
     }
 }
 
+#[derive(Debug)]
 pub struct GitLabProjectIssue {
     id: Uuid,
     project_id: u64,

@@ -18,6 +18,5 @@
     - [ ] Let user choose the key to use as title
     - [ ] Let user choose the key to use as description
 - [x] Let user choose labels to add to the issues
-- [ ] Let user choose assignee to add to the issues
-    - This seems to be done correctly according to the gitlab api docs, but it doesn't work. Assignee name given with `--assignee` or `-a` is first verified to match a member of the project and later that id is used to assign the issue with key `assignee_id`. I don't know why it doesn't work. Requires further investigation.
+- [x] Let user choose assignee to add to the issues
 - [ ] Let user choose milestone to add to the issues

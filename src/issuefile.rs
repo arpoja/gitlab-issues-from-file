@@ -1,4 +1,5 @@
 use csv::ReaderBuilder;
+use log::{debug, error, info, warn};
 use std::path::PathBuf;
 pub struct IssueFromFile {
     pub title: String,
@@ -25,7 +26,6 @@ pub struct FileParser {
     title_column_index: Option<usize>,
     description_column: Option<String>,
     description_column_index: Option<usize>,
-    verbose: bool,
 }
 impl FileParser {
     pub fn new(
@@ -36,7 +36,6 @@ impl FileParser {
         title_column_index: Option<usize>,
         description_column: Option<String>,
         description_column_index: Option<usize>,
-        verbose: bool,
     ) -> FileParser {
         let file_extension = file.extension().unwrap().to_str().unwrap().to_lowercase();
         FileParser {
@@ -48,7 +47,6 @@ impl FileParser {
             title_column_index: title_column_index,
             description_column: description_column.clone(),
             description_column_index: description_column_index,
-            verbose: verbose,
         }
     }
     pub fn get_issues(&mut self) -> Result<Vec<IssueFromFile>, String> {
@@ -59,9 +57,7 @@ impl FileParser {
         }
     }
     fn csv_to_issues(&mut self) -> Result<Vec<IssueFromFile>, String> {
-        if self.verbose {
-            println!("Parsing csv file with options: {:#?}", self);
-        }
+        debug!("Parsing csv file with options: {:#?}", self);
         // Open csv reader
         let mut reader = ReaderBuilder::new()
             .has_headers(!self.no_header)
@@ -74,28 +70,22 @@ impl FileParser {
                 Ok(h) => h,
                 Err(_) => return Err(String::from("Could not read headers")),
             };
-            if self.verbose {
-                println!("CSV file has headers {:?}", headers);
-            }
+            debug!("CSV file has headers {:?}", headers);
             // Get title column index if title_column is set by name
             if self.title_column.is_some() {
-                if self.verbose {
-                    println!(
-                        "title_column is set to '{}', trying to find column index...",
-                        self.title_column.as_ref().unwrap()
-                    );
-                }
+                debug!(
+                    "User specified title_column: '{}', trying to find column index...",
+                    self.title_column.as_ref().unwrap()
+                );
                 if let Some(title_column_index) = headers
                     .iter()
                     .position(|x| x == self.title_column.as_ref().unwrap().as_str())
                 {
                     self.title_column_index = Some(title_column_index);
-                    if self.verbose {
-                        println!(
-                            "Found title_column_index: {}",
-                            self.title_column_index.unwrap()
-                        );
-                    }
+                    debug!(
+                        "Found title_column_index: {}",
+                        self.title_column_index.unwrap()
+                    );
                 } else {
                     return Err(format!(
                         "Could not find column with name '{}'",
@@ -105,23 +95,19 @@ impl FileParser {
             }
             // Get description column index if description_column is set by name
             if self.description_column.is_some() {
-                if self.verbose {
-                    println!(
-                        "description_column is set to '{}', trying to find column index...",
-                        self.description_column.as_ref().unwrap()
-                    );
-                }
+                debug!(
+                    "User specified description_column: '{}', trying to find column index...",
+                    self.description_column.as_ref().unwrap()
+                );
                 if let Some(description_column_index) = headers
                     .iter()
                     .position(|x| x == self.description_column.as_ref().unwrap().as_str())
                 {
                     self.description_column_index = Some(description_column_index);
-                    if self.verbose {
-                        println!(
-                            "Found description_column_index: {}",
-                            self.description_column_index.unwrap()
-                        );
-                    }
+                    debug!(
+                        "Found description_column_index: {}",
+                        self.description_column_index.unwrap()
+                    );
                 } else {
                     return Err(format!(
                         "Could not find column with name '{}'",
@@ -141,9 +127,6 @@ impl FileParser {
                 return Err(String::from("description_column_index is out of bounds"));
             }
         }
-        if self.verbose {
-            println!("Column indeces set to valid values: {:#?}", self);
-        }
         // We now have valid title_column_index and if set, description_column_index as well
         // Start building issues
         let mut issues: Vec<IssueFromFile> = Vec::new();
@@ -152,29 +135,27 @@ impl FileParser {
             let record = match result {
                 Ok(r) => r,
                 Err(_) => {
-                    if self.verbose {
-                        println!("Error reading record: {:#?}", result);
-                    }
+                    error!("Error reading record: {:#?}", result);
                     return Err(String::from("Could not read record"));
                 }
             };
             // Get title
             let title = match record.get(self.title_column_index.unwrap()) {
-                Some(t) => t,
+                Some(t) => t.to_string(),
                 None => return Err(String::from("Could not get title")),
             };
             // Get description
             let description = match self.description_column_index {
                 Some(i) => match record.get(i) {
-                    Some(d) => d,
-                    None => return Err(String::from("Could not get description")),
+                    Some(d) => Some(d.to_string()),
+                    None => None,
                 },
-                None => "",
+                None => None,
             };
             // Build issue and push it to issues
             let issue = IssueFromFile {
-                title: title.to_string(),
-                description: Some(description.to_string()),
+                title: title,
+                description: description,
             };
             issues.push(issue);
         }
@@ -182,15 +163,7 @@ impl FileParser {
         Ok(issues)
     }
     fn json_to_issues(&self) -> Result<Vec<IssueFromFile>, String> {
+        warn!("JSON parsing is not implemented yet");
         Err(String::from("Not implemented"))
-    }
-
-    pub fn verify_supported_file_type(file: &PathBuf) -> Result<(), &'static str> {
-        let file_type = file.extension().unwrap();
-        match file_type.to_ascii_lowercase().to_str().unwrap() {
-            "csv" => Ok(()),
-            "json" => Err("Not implemented currently"),
-            _ => Err("Unsupported file type"),
-        }
     }
 }
