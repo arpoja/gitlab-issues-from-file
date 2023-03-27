@@ -77,20 +77,22 @@ impl FileParser {
                     "User specified title_column: '{}', trying to find column index...",
                     self.title_column.as_ref().unwrap()
                 );
-                if let Some(title_column_index) = headers
+                // Get index of title_column, match any case
+                headers
                     .iter()
-                    .position(|x| x == self.title_column.as_ref().unwrap().as_str())
-                {
-                    self.title_column_index = Some(title_column_index);
-                    debug!(
-                        "Found title_column_index: {}",
-                        self.title_column_index.unwrap()
-                    );
-                } else {
-                    return Err(format!(
-                        "Could not find column with name '{}'",
-                        self.title_column.as_ref().unwrap()
-                    ));
+                    .position(|x| {
+                        x.to_lowercase()
+                            == self.title_column.as_ref().unwrap().to_lowercase().as_str()
+                    })
+                    .map(|i| self.title_column_index = Some(i));
+                match self.title_column_index {
+                    Some(i) => debug!("Found title_column_index: {}", i),
+                    None => {
+                        return Err(format!(
+                            "Could not find column with name '{}'",
+                            self.title_column.as_ref().unwrap()
+                        ))
+                    }
                 }
             }
             // Get description column index if description_column is set by name
@@ -99,20 +101,27 @@ impl FileParser {
                     "User specified description_column: '{}', trying to find column index...",
                     self.description_column.as_ref().unwrap()
                 );
-                if let Some(description_column_index) = headers
+                // Get index of description_column, match any case
+                headers
                     .iter()
-                    .position(|x| x == self.description_column.as_ref().unwrap().as_str())
-                {
-                    self.description_column_index = Some(description_column_index);
-                    debug!(
-                        "Found description_column_index: {}",
-                        self.description_column_index.unwrap()
-                    );
-                } else {
-                    return Err(format!(
-                        "Could not find column with name '{}'",
-                        self.description_column.as_ref().unwrap()
-                    ));
+                    .position(|x| {
+                        x.to_lowercase()
+                            == self
+                                .description_column
+                                .as_ref()
+                                .unwrap()
+                                .to_lowercase()
+                                .as_str()
+                    })
+                    .map(|i| self.description_column_index = Some(i));
+                match self.description_column_index {
+                    Some(i) => debug!("Found description_column_index: {}", i),
+                    None => {
+                        return Err(format!(
+                            "Could not find column with name '{}'",
+                            self.description_column.as_ref().unwrap()
+                        ))
+                    }
                 }
             }
         }
@@ -163,7 +172,8 @@ impl FileParser {
         Ok(issues)
     }
     fn json_to_issues(&self) -> Result<Vec<IssueFromFile>, String> {
-        warn!("JSON parsing is not implemented yet");
+        debug!("Parsing json file with options: {:#?}", self);
+
         Err(String::from("Not implemented"))
     }
 }
