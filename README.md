@@ -4,6 +4,7 @@
 # Usage
 - `gitlab-issues-from-file --help`
 - Basic example. Set `GITLAB_URL`, `GITLAB_ACCESS_TOKEN` environment variables and run `gitlab-issues-from-file -f issues.csv -p myproject`
+- Logging is done using [env_logger](https://docs.rs/env_logger/latest/env_logger/). Set `RUST_LOG` environment variable to `debug` to see debug logs. `--verbose` sets level to `info` and normal logs are `warn` and `error`
 # Current status
 - [x] Let user choose the project to create the issues in
     - [x] Let user choose the project by id
