@@ -24,9 +24,9 @@ struct Args {
     /// Does the csv file have a header row?
     #[arg(long, default_value = "false")]
     no_header: bool,
-    /// Column name to use as the title of the issue when parsing a csv or json file.
+    /// Key name to use as the title of the issue when parsing a csv or json file.
     #[arg(long, default_value = "title")]
-    title_column: Option<String>,
+    title_key: Option<String>,
     /// CSV Column index *Starting from 0* to use as the issue title.
     ///
     /// Ignored if file is not a csv file.
@@ -34,9 +34,9 @@ struct Args {
     #[arg(long)]
     title_index: Option<usize>,
 
-    /// Column name to use as the description of the issue when parsing a csv or json file.
+    /// Key name to use as the description of the issue when parsing a csv or json file.
     #[arg(long, default_value = "description")]
-    description_column: Option<String>,
+    description_key: Option<String>,
     /// Column index *Starting from 0* to use as the issue description.
     ///
     /// Ignored if file is not a csv file.
@@ -154,10 +154,10 @@ fn verify_args(args: &mut Args) {
     }
     // Clear title and description column if index is provided
     if args.title_index.is_some() {
-        args.title_column = None;
+        args.title_key = None;
     }
     if args.description_index.is_some() {
-        args.description_column = None;
+        args.description_key = None;
     }
     // Verify that title_index is provided if the csv file has no header
     if args.no_header && args.title_index.is_none() {
@@ -182,9 +182,9 @@ fn args_to_parser(args: &Args) -> issuefile::FileParser {
         args.file.as_ref().unwrap().to_path_buf(),
         args.separator.clone(),
         args.no_header.clone(),
-        args.title_column.clone(),
+        args.title_key.clone(),
         args.title_index,
-        args.description_column.clone(),
+        args.description_key.clone(),
         args.description_index,
     );
     parser

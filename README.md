@@ -14,9 +14,9 @@
 - [x] Create issues from csv file
     - [x] Let user choose the column to use as title, either by name or index
     - [x] Let user choose the column to use as description, either by name or index
-- [ ] Create issues from json file
-    - [ ] Let user choose the key to use as title
-    - [ ] Let user choose the key to use as description
+- [x] Create issues from json file
+    - [x] Let user choose the key to use as title
+    - [x] Let user choose the key to use as description
 - [x] Let user choose labels to add to the issues
 - [x] Let user choose assignee to add to the issues
 - [ ] Let user choose milestone to add to the issues

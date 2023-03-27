@@ -22,9 +22,9 @@ pub struct FileParser {
     file_extension: String,
     separator: Option<char>,
     no_header: bool,
-    title_column: Option<String>,
+    title_key: Option<String>,
     title_column_index: Option<usize>,
-    description_column: Option<String>,
+    description_key: Option<String>,
     description_column_index: Option<usize>,
 }
 impl FileParser {
@@ -32,9 +32,9 @@ impl FileParser {
         file: PathBuf,
         separator: Option<char>,
         no_header: bool,
-        title_column: Option<String>,
+        title_key: Option<String>,
         title_column_index: Option<usize>,
-        description_column: Option<String>,
+        description_key: Option<String>,
         description_column_index: Option<usize>,
     ) -> FileParser {
         let file_extension = file.extension().unwrap().to_str().unwrap().to_lowercase();
@@ -43,9 +43,9 @@ impl FileParser {
             file_extension: file_extension,
             separator: separator,
             no_header: no_header,
-            title_column: title_column.clone(),
+            title_key: title_key.clone(),
             title_column_index: title_column_index,
-            description_column: description_column.clone(),
+            description_key: description_key.clone(),
             description_column_index: description_column_index,
         }
     }
@@ -72,17 +72,16 @@ impl FileParser {
             };
             debug!("CSV file has headers {:?}", headers);
             // Get title column index if title_column is set by name
-            if self.title_column.is_some() {
+            if self.title_key.is_some() {
                 debug!(
                     "User specified title_column: '{}', trying to find column index...",
-                    self.title_column.as_ref().unwrap()
+                    self.title_key.as_ref().unwrap()
                 );
                 // Get index of title_column, match any case
                 headers
                     .iter()
                     .position(|x| {
-                        x.to_lowercase()
-                            == self.title_column.as_ref().unwrap().to_lowercase().as_str()
+                        x.to_lowercase() == self.title_key.as_ref().unwrap().to_lowercase().as_str()
                     })
                     .map(|i| self.title_column_index = Some(i));
                 match self.title_column_index {
@@ -90,16 +89,16 @@ impl FileParser {
                     None => {
                         return Err(format!(
                             "Could not find column with name '{}'",
-                            self.title_column.as_ref().unwrap()
+                            self.title_key.as_ref().unwrap()
                         ))
                     }
                 }
             }
             // Get description column index if description_column is set by name
-            if self.description_column.is_some() {
+            if self.description_key.is_some() {
                 debug!(
                     "User specified description_column: '{}', trying to find column index...",
-                    self.description_column.as_ref().unwrap()
+                    self.description_key.as_ref().unwrap()
                 );
                 // Get index of description_column, match any case
                 headers
@@ -107,7 +106,7 @@ impl FileParser {
                     .position(|x| {
                         x.to_lowercase()
                             == self
-                                .description_column
+                                .description_key
                                 .as_ref()
                                 .unwrap()
                                 .to_lowercase()
@@ -119,7 +118,7 @@ impl FileParser {
                     None => {
                         return Err(format!(
                             "Could not find column with name '{}'",
-                            self.description_column.as_ref().unwrap()
+                            self.description_key.as_ref().unwrap()
                         ))
                     }
                 }
@@ -173,7 +172,75 @@ impl FileParser {
     }
     fn json_to_issues(&self) -> Result<Vec<IssueFromFile>, String> {
         debug!("Parsing json file with options: {:#?}", self);
+        let mut issues: Vec<IssueFromFile> = Vec::new();
+        // Read json file to string and parse it
+        let mut contents = match std::fs::read_to_string(&self.file) {
+            Ok(c) => c,
+            Err(e) => return Err(format!("Could not read file: {}", e)),
+        };
+        let data: serde_json::Value = match serde_json::from_str(&contents) {
+            Ok(j) => j,
+            Err(e) => return Err(format!("Could not parse json: {}", e)),
+        };
+        // Check if data is an array of objects
+        debug!("Json data: {:#?}", data);
+        if data.is_array() {
+            for item in data.as_array().unwrap() {
+                debug!("Item: {:#?}", item);
+                if item.is_object() {
+                    let issue = match self.serde_object_to_issue(item.as_object().unwrap()) {
+                        Ok(i) => i,
+                        Err(e) => return Err(e),
+                    };
+                    issues.push(issue);
+                } else {
+                    return Err(String::from(
+                        "Json data is not of a format that can be parsed",
+                    ));
+                }
+            }
+        } else if data.is_object() {
+            let issue = match self.serde_object_to_issue(data.as_object().unwrap()) {
+                Ok(i) => i,
+                Err(e) => return Err(e),
+            };
+            issues.push(issue);
+        } else {
+            return Err(String::from(
+                "Json data is not of a format that can be parsed",
+            ));
+        }
 
-        Err(String::from("Not implemented"))
+        Ok(issues)
+    }
+    fn serde_object_to_issue(
+        &self,
+        data: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<IssueFromFile, String> {
+        // Loop through the keys and check if they are valid
+        let mut title: String = String::new();
+        let mut description: Option<String> = None;
+        let our_title_name = self.title_key.as_ref().unwrap().to_lowercase();
+        let our_description_name = self.description_key.as_ref().unwrap().to_lowercase();
+        for (key, value) in data {
+            let key = key.to_lowercase();
+            if key == our_title_name {
+                if value.is_string() {
+                    title = value.as_str().unwrap().to_string();
+                } else {
+                    return Err(String::from("Title is not a string"));
+                }
+            } else if key == our_description_name {
+                if value.is_string() {
+                    description = Some(value.as_str().unwrap().to_string());
+                } else {
+                    return Err(String::from("Description is not a string"));
+                }
+            }
+        }
+        Ok(IssueFromFile {
+            title: title,
+            description: description,
+        })
     }
 }
