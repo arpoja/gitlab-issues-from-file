@@ -80,6 +80,13 @@ struct Args {
     #[arg(long)]
     prepend_title: Option<String>,
 
+    /// Combine all other columns/keys into the description with:
+    /// <key1>: <value1>\n\n<key2>: <value2>\n\n... etc
+    /// If this is set to true, description_key and description_index are ignored.
+    // Double newlines because GitLab uses them to separate paragraphs.
+    #[arg(long, default_value = "false")]
+    combine_remaining: bool,
+
     /// Should we disable SSL verification for requests to gitlab?
     #[arg(short, long, default_value = "false")]
     no_ssl_verify: bool,
@@ -192,6 +199,7 @@ fn args_to_parser(args: &Args) -> issuefile::FileParser {
         args.description_key.clone(),
         args.description_index,
         args.prepend_title.clone(),
+        args.combine_remaining,
     );
     parser
 }

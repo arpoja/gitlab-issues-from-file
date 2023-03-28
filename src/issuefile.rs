@@ -29,6 +29,7 @@ pub struct FileParser {
     description_key: Option<String>,
     description_column_index: Option<usize>,
     prepend_title: Option<String>,
+    combine_remaining: bool,
 }
 impl FileParser {
     pub fn new(
@@ -40,6 +41,7 @@ impl FileParser {
         description_key: Option<String>,
         description_column_index: Option<usize>,
         prepend_title: Option<String>,
+        combine_remaining: bool,
     ) -> FileParser {
         let file_extension = file.extension().unwrap().to_str().unwrap().to_lowercase();
         FileParser {
@@ -52,6 +54,7 @@ impl FileParser {
             description_key: description_key.clone(),
             description_column_index: description_column_index,
             prepend_title: prepend_title,
+            combine_remaining: combine_remaining,
         }
     }
     pub fn get_issues(&mut self) -> Result<Vec<IssueFromFile>, String> {
@@ -70,6 +73,7 @@ impl FileParser {
             .from_path(&self.file)
             .unwrap();
         // Get title and description column index
+        let mut all_headers: Vec<String> = Vec::new(); // Used if combine_remaining is set
         if !self.no_header {
             let headers = match reader.headers() {
                 Ok(h) => h,
@@ -99,8 +103,11 @@ impl FileParser {
                     }
                 }
             }
+            if self.combine_remaining {
+                headers.iter().for_each(|x| all_headers.push(x.to_string()));
+            }
             // Get description column index if description_column is set by name
-            if self.description_key.is_some() {
+            if self.description_key.is_some() & !self.combine_remaining {
                 debug!(
                     "User specified description_column: '{}', trying to find column index...",
                     self.description_key.as_ref().unwrap()
@@ -127,6 +134,9 @@ impl FileParser {
                         ))
                     }
                 }
+            }
+            if self.combine_remaining {
+                debug!("User specified to combine remaining columns");
             }
         }
         // Are title_column_index and description_column_index within bounds?
@@ -158,13 +168,34 @@ impl FileParser {
                 None => return Err(String::from("Could not get title")),
             };
             // Get description
-            let description = match self.description_column_index {
-                Some(i) => match record.get(i) {
+            let mut description: Option<String> = None;
+            if self.combine_remaining {
+                // Combine remaining columns into description
+                let mut description_string = String::new();
+                for (i, field) in record.iter().enumerate() {
+                    if i == self.title_column_index.unwrap() {
+                        continue;
+                    }
+                    let key = match self.no_header {
+                        true => format!("Column {}", i),
+                        false => format!("{}", all_headers[i]),
+                    };
+
+                    description_string.push_str(&format!(
+                        "{}: {}\n\n",
+                        key.trim(),
+                        field.to_string()
+                    ));
+                }
+                description = Some(description_string);
+            } else if self.description_column_index.is_some() {
+                // Get description from column
+                description = match record.get(self.description_column_index.unwrap()) {
                     Some(d) => Some(d.to_string()),
-                    None => None,
-                },
-                None => None,
-            };
+                    None => return Err(String::from("Could not get description")),
+                };
+            }
+
             // Build issue and push it to issues
             let issue = IssueFromFile {
                 title: match self.prepend_title.as_ref() {
@@ -227,28 +258,46 @@ impl FileParser {
     ) -> Result<IssueFromFile, String> {
         // Loop through the keys and check if they are valid
         let mut title: String = String::new();
-        let mut description: Option<String> = None;
+        let mut description_string: Vec<String> = Vec::new();
         let our_title_name = self.title_key.as_ref().unwrap().to_lowercase();
-        let our_description_name = self.description_key.as_ref().unwrap().to_lowercase();
+
+        // let our_description_name = self.description_key.as_ref().unwrap().to_lowercase();
         for (key, value) in data {
-            let key = key.to_lowercase();
-            if key == our_title_name {
-                if value.is_string() {
-                    title = value.as_str().unwrap().to_string();
+            let val = match value {
+                serde_json::Value::String(s) => s.to_string(),
+                serde_json::Value::Bool(b) => b.to_string(),
+                serde_json::Value::Number(n) => n.to_string(),
+                serde_json::Value::Null => String::from("null"),
+                _ => return Err(String::from("Title is not a string")),
+            };
+            // Get title
+            if key.to_lowercase() == our_title_name {
+                title = val;
+            } else {
+                // Get description
+                if self.combine_remaining {
+                    // Combine remaining columns into description
+                    description_string.push(format!("{}: {}\n\n", key.trim(), val));
                 } else {
-                    return Err(String::from("Title is not a string"));
-                }
-            } else if key == our_description_name {
-                if value.is_string() {
-                    description = Some(value.as_str().unwrap().to_string());
-                } else {
-                    return Err(String::from("Description is not a string"));
+                    // Get description from key name if it is set
+                    if self.description_key.is_some() {
+                        let our_description_name =
+                            self.description_key.as_ref().unwrap().to_lowercase();
+                        if key.to_lowercase() == our_description_name {
+                            description_string = vec![val];
+                        }
+                    }
                 }
             }
         }
+        // Check if description is set
+
         Ok(IssueFromFile {
             title: title,
-            description: description,
+            description: match description_string.is_empty() {
+                true => None,
+                false => Some(description_string.join("")),
+            },
         })
     }
 }
