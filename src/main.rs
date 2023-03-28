@@ -250,7 +250,7 @@ fn get_valid_project_id(
         match matching_projects.len() {
             0 => {
                 return Err(format!(
-                    "No projects with name {} found",
+                    "No projects with name '{}' found",
                     wanted_project_name.clone()
                 ))
             }
@@ -259,7 +259,7 @@ fn get_valid_project_id(
             }
             _ => {
                 return Err(format!(
-                    "Multiple projects with name {} found",
+                    "Multiple projects with name '{}' found",
                     wanted_project_name.clone()
                 ));
             }
@@ -272,7 +272,7 @@ fn get_valid_project_id(
                 return Ok(wanted_project_id);
             }
         }
-        return Err(format!("No project with id {} found", wanted_project_id));
+        return Err(format!("No project with id '{}' found", wanted_project_id));
     }
 }
 
@@ -397,7 +397,7 @@ fn main() {
             ),
             false => {
                 error!(
-                    "The assignee {} does not exist or is not a member of the project with id {}",
+                    "The assignee '{}' does not exist or is not a member of the project with id {}",
                     our_assignee, project_id
                 );
                 std::process::exit(1);
@@ -446,7 +446,7 @@ fn main() {
                 true => (),
                 false => {
                     error!(
-                        "The label {} does not exist in the project with id {}",
+                        "The label '{}' does not exist in the project with id {}",
                         our_label, project_id
                     );
                     std::process::exit(1);
