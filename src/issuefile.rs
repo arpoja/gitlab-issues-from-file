@@ -290,8 +290,10 @@ impl FileParser {
                 }
             }
         }
-        // Check if description is set
-
+        // Check if we have a title
+        if title.is_empty() {
+            return Err(String::from("Could not find title"));
+        }
         Ok(IssueFromFile {
             title: title,
             description: match description_string.is_empty() {
