@@ -75,6 +75,11 @@ struct Args {
     #[arg(short, long)]
     assignee: Option<String>,
 
+    /// Prepend the issue title with this string.
+    /// e.g. --prepend-title "TODO:" -> "TODO: <title>"
+    #[arg(long)]
+    prepend_title: Option<String>,
+
     /// Should we disable SSL verification for requests to gitlab?
     #[arg(short, long, default_value = "false")]
     no_ssl_verify: bool,
@@ -186,6 +191,7 @@ fn args_to_parser(args: &Args) -> issuefile::FileParser {
         args.title_index,
         args.description_key.clone(),
         args.description_index,
+        args.prepend_title.clone(),
     );
     parser
 }

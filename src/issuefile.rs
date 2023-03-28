@@ -28,6 +28,7 @@ pub struct FileParser {
     title_column_index: Option<usize>,
     description_key: Option<String>,
     description_column_index: Option<usize>,
+    prepend_title: Option<String>,
 }
 impl FileParser {
     pub fn new(
@@ -38,6 +39,7 @@ impl FileParser {
         title_column_index: Option<usize>,
         description_key: Option<String>,
         description_column_index: Option<usize>,
+        prepend_title: Option<String>,
     ) -> FileParser {
         let file_extension = file.extension().unwrap().to_str().unwrap().to_lowercase();
         FileParser {
@@ -49,6 +51,7 @@ impl FileParser {
             title_column_index: title_column_index,
             description_key: description_key.clone(),
             description_column_index: description_column_index,
+            prepend_title: prepend_title,
         }
     }
     pub fn get_issues(&mut self) -> Result<Vec<IssueFromFile>, String> {
@@ -164,7 +167,10 @@ impl FileParser {
             };
             // Build issue and push it to issues
             let issue = IssueFromFile {
-                title: title,
+                title: match self.prepend_title.as_ref() {
+                    Some(p) => format!("{} {}", p, title),
+                    None => title,
+                },
                 description: description,
             };
             issues.push(issue);
