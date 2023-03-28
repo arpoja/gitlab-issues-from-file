@@ -1,14 +1,16 @@
 use csv::ReaderBuilder;
 use log::{debug, error, info, warn};
+use std::fmt;
 use std::path::PathBuf;
 pub struct IssueFromFile {
     pub title: String,
     pub description: Option<String>,
 }
-impl IssueFromFile {
-    pub fn to_string(&self) -> String {
-        format!(
-            "Title: {}, Description: {}",
+impl fmt::Display for IssueFromFile {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Title: '{}', Description: '{}'",
             self.title,
             self.description.as_ref().unwrap_or(&"".to_string())
         )

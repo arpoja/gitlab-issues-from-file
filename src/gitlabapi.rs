@@ -1,6 +1,7 @@
 use log::{debug, error, info, warn};
 use reqwest;
 use std::collections::HashMap;
+use std::fmt;
 use uuid::Uuid;
 
 use crate::issuefile::IssueFromFile;
@@ -10,19 +11,18 @@ pub struct GitLabProjectMember {
     pub username: String,
     name: String,
 }
-impl GitLabProjectMember {
-    pub fn to_string(&self) -> String {
-        format!("{} ({})", self.username, self.name)
+impl fmt::Display for GitLabProjectMember {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}: {} ({})", self.id, self.username, self.name)
     }
 }
-
 pub struct GitLabProjectLabel {
     id: u64,
     pub name: String,
 }
-impl GitLabProjectLabel {
-    pub fn to_string(&self) -> String {
-        self.name.clone()
+impl fmt::Display for GitLabProjectLabel {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}: {}", self.id, self.name)
     }
 }
 
@@ -33,9 +33,13 @@ pub struct GitLabProject {
     members: Option<Vec<GitLabProjectMember>>,
     labels: Option<Vec<GitLabProjectLabel>>,
 }
-impl GitLabProject {
-    pub fn to_string(&self) -> String {
-        format!("{}: {} ({})", self.id, self.name, self.path_with_namespace)
+impl fmt::Display for GitLabProject {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}: {} ({})",
+            self.id, self.name, self.path_with_namespace
+        )
     }
 }
 
